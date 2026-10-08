@@ -95,3 +95,7 @@ loss of that node. This repository keeps the defaults (`preferred` rules and
 `ScheduleAnyway` spread constraints), which also work on a single node. Comments
 in `02-database/cluster.yaml` and `03-keycloak/keycloak.yaml` show the stricter
 settings. They were not tested here.
+
+## License
+
+Distributed under the [Apache License 2.0](LICENSE), without any warranty.
