@@ -77,7 +77,7 @@ check "Spoofed X-Remote-User replaced" alice "$(printf '%s' "$SPOOF" | jq -r '.i
 check "Spoofed X-Remote-Employee-Id replaced" E-1001 \
   "$(printf '%s' "$SPOOF" | jq -r '.identity["X-Remote-Employee-Id"]')"
 check "Identity header not set by this route (X-Client-Id) removed" false \
-  "$(printf '%s' "$SPOOF" | jq '.headers | index("X-Client-Id") != null')"
+  "$(printf '%s' "$SPOOF" | jq '.headers | map(ascii_downcase) | index("x-client-id") != null')"
 case "$(printf '%s' "$SPOOF" | jq -r .x_forwarded_for)" in
   *203.0.113.66*) fail "Spoofed X-Forwarded-For removed" ;;
   *) pass "Spoofed X-Forwarded-For removed (seen: $(printf '%s' "$SPOOF" | jq -r .x_forwarded_for))" ;;
