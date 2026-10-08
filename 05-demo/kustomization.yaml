@@ -13,6 +13,6 @@ configMapGenerator:
 
 resources:
   - network-policy.yaml
-  - userinfo-authz.yaml
-  - intranet.yaml
-  - echo-api.yaml
+  - workloads.yaml
+  - intranet-route.yaml
+  - echo-api-route.yaml
