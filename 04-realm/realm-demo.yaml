@@ -30,6 +30,10 @@ spec:
       secret:
         name: demo-realm-secrets
         key: inventory-sync-secret
+    AUDIT_JOB_SECRET:
+      secret:
+        name: demo-realm-secrets
+        key: audit-job-secret
   realm:
     realm: demo
     displayName: Demo
@@ -141,6 +145,9 @@ spec:
           echo-api:
             - read
             - write
+      - username: service-account-audit-job
+        enabled: true
+        serviceAccountClientId: audit-job
 
     clients:
       # Confidential client used by the OIDC filter of Envoy Gateway.
@@ -216,7 +223,7 @@ spec:
         directAccessGrantsEnabled: false
         serviceAccountsEnabled: false
 
-      # Machine clients (client credentials grant).
+      # Machine clients (client credentials grant). audit-job has no API role.
       - clientId: reporting-job
         name: Reporting job (read only)
         enabled: true
@@ -233,6 +240,16 @@ spec:
         publicClient: false
         clientAuthenticatorType: client-secret
         secret: "${INVENTORY_SYNC_SECRET}"
+        standardFlowEnabled: false
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
+      - clientId: audit-job
+        name: Audit job (no API role)
+        enabled: true
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: "${AUDIT_JOB_SECRET}"
         standardFlowEnabled: false
         implicitFlowEnabled: false
         directAccessGrantsEnabled: false

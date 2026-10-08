@@ -12,6 +12,7 @@ ALICE_PASSWORD="$(secret keycloak demo-realm-secrets alice-password)"
 BOB_PASSWORD="$(secret keycloak demo-realm-secrets bob-password)"
 REPORTING_JOB_SECRET="$(secret keycloak demo-realm-secrets reporting-job-secret)"
 INVENTORY_SYNC_SECRET="$(secret keycloak demo-realm-secrets inventory-sync-secret)"
+AUDIT_JOB_SECRET="$(secret keycloak demo-realm-secrets audit-job-secret)"
 
 section "Platform"
 check "CloudNativePG: 3 ready instances" 3 \
@@ -50,6 +51,9 @@ check "No token: 401" 401 "$(http_code "$API/items")"
 check "Invalid token: 401" 401 "$(http_code -H 'Authorization: Bearer not-a-jwt' "$API/items")"
 FORGED="$(printf '%s' "$READ_TOKEN" | cut -d. -f1,2).c2lnbmF0dXJl"
 check "Forged signature: 401" 401 "$(http_code -H "Authorization: Bearer $FORGED" "$API/items")"
+check "Token issued for another audience (audit-job): 403" "403 Audiences in Jwt are not allowed" \
+  "$(c -w ' %{http_code}' -H "Authorization: Bearer $(client_token audit-job "$AUDIT_JOB_SECRET")" "$API/items" |
+    awk '{print $NF, substr($0, 1, length($0) - 4)}')"
 check "reporting-job GET (role read): 200" 200 \
   "$(http_code -H "Authorization: Bearer $READ_TOKEN" "$API/items")"
 check "reporting-job POST (no role write): 403" 403 \
@@ -85,11 +89,13 @@ esac
 check "bob (contractors, no intranet role) signs in: 403" 403 \
   "$(browser_login bob "$BOB_PASSWORD" "$INTRANET/whoami")"
 
+LOGOUT_URL="$(c -o /dev/null -w '%{redirect_url}' -c "$TMP/alice.jar" -b "$TMP/alice.jar" "$INTRANET/logout")"
 check_prefix "Logout redirects to the Keycloak end session endpoint" \
-  "$KC/realms/demo/protocol/openid-connect/logout" \
-  "$(c -o /dev/null -w '%{redirect_url}' -c "$TMP/alice.jar" -b "$TMP/alice.jar" "$INTRANET/logout")"
-check_prefix "After logout, the intranet asks to sign in again" "$KC/realms/demo/protocol/openid-connect/auth?" \
-  "$(c -o /dev/null -w '%{redirect_url}' -b "$TMP/alice.jar" "$INTRANET/whoami")"
+  "$KC/realms/demo/protocol/openid-connect/logout?" "$LOGOUT_URL"
+check "Keycloak ends the session and returns to the intranet" "$INTRANET/" \
+  "$(c -o /dev/null -w '%{redirect_url}' -c "$TMP/alice.jar" -b "$TMP/alice.jar" "$LOGOUT_URL")"
+check "After logout, the login form is shown again (no single sign-on)" yes \
+  "$(c -L -c "$TMP/alice.jar" -b "$TMP/alice.jar" "$INTRANET/whoami" | grep -q 'id="kc-form-login"' && echo yes)"
 
 section "Session revocation (UserInfo check)"
 browser_login alice "$ALICE_PASSWORD" "$INTRANET/whoami" >/dev/null

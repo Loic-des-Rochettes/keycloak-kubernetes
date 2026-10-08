@@ -13,7 +13,8 @@ if ! kubectl -n keycloak get secret demo-realm-secrets >/dev/null 2>&1; then
     --from-literal=bob-password="$(rand)" \
     --from-literal=intranet-client-secret="$(rand)" \
     --from-literal=reporting-job-secret="$(rand)" \
-    --from-literal=inventory-sync-secret="$(rand)"
+    --from-literal=inventory-sync-secret="$(rand)" \
+    --from-literal=audit-job-secret="$(rand)"
 fi
 
 # Same value as the intranet client secret of the realm.
