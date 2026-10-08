@@ -1,0 +1,46 @@
+# PostgreSQL cluster dedicated to Keycloak, managed by CloudNativePG:
+# one primary and two standbys, with automated failover.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  namespace: keycloak
+spec:
+  instances: 3
+  # Pinned image: the PostgreSQL version changes only when this line changes.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+
+  # Creates the "keycloak" database owned by the "keycloak" user. The operator
+  # stores the generated credentials in the "keycloak-db-app" Secret.
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+
+  postgresql:
+    parameters:
+      shared_buffers: 128MB
+      max_connections: "100"
+    # A commit waits for at least one standby: no committed transaction is
+    # lost on failover (RPO = 0).
+    synchronous:
+      method: any
+      number: 1
+
+  # Defaults made explicit. On a multi-node cluster, use "required" so that two
+  # instances never share a node; spread across zones with
+  # topologyKey: topology.kubernetes.io/zone.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: preferred
+
+  storage:
+    size: 2Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

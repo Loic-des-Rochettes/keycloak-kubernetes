@@ -1,0 +1,239 @@
+# "demo" realm: users, groups and clients used by the Envoy Gateway examples.
+# KeycloakRealmImport only creates a realm that does not exist yet: it neither
+# updates nor deletes it. Secrets come from the "demo-realm-secrets" Secret
+# through placeholders, they never appear in this file.
+apiVersion: k8s.keycloak.org/v2beta1
+kind: KeycloakRealmImport
+metadata:
+  name: demo
+  namespace: keycloak
+spec:
+  keycloakCRName: keycloak
+  placeholders:
+    ALICE_PASSWORD:
+      secret:
+        name: demo-realm-secrets
+        key: alice-password
+    BOB_PASSWORD:
+      secret:
+        name: demo-realm-secrets
+        key: bob-password
+    INTRANET_CLIENT_SECRET:
+      secret:
+        name: demo-realm-secrets
+        key: intranet-client-secret
+    REPORTING_JOB_SECRET:
+      secret:
+        name: demo-realm-secrets
+        key: reporting-job-secret
+    INVENTORY_SYNC_SECRET:
+      secret:
+        name: demo-realm-secrets
+        key: inventory-sync-secret
+  realm:
+    realm: demo
+    displayName: Demo
+    enabled: true
+    sslRequired: external
+    bruteForceProtected: true
+
+    # User profile: two business attributes on top of the default ones,
+    # managed by administrators and visible to the user.
+    components:
+      org.keycloak.userprofile.UserProfileProvider:
+        - providerId: declarative-user-profile
+          subComponents: {}
+          config:
+            kc.user.profile.config:
+              - |
+                {
+                  "attributes": [
+                    {"name": "username", "displayName": "Username",
+                     "validations": {"length": {"min": 3, "max": 255}, "username-prohibited-characters": {}, "up-username-not-idn-homograph": {}},
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                    {"name": "email", "displayName": "Email",
+                     "validations": {"email": {}, "length": {"max": 255}},
+                     "required": {"roles": ["user"]},
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                    {"name": "firstName", "displayName": "First name",
+                     "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                     "required": {"roles": ["user"]},
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                    {"name": "lastName", "displayName": "Last name",
+                     "validations": {"length": {"max": 255}, "person-name-prohibited-characters": {}},
+                     "required": {"roles": ["user"]},
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin", "user"]}, "multivalued": false},
+                    {"name": "employee_id", "displayName": "Employee ID",
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin"]}, "multivalued": false},
+                    {"name": "department", "displayName": "Department",
+                     "permissions": {"view": ["admin", "user"], "edit": ["admin"]}, "multivalued": false}
+                  ],
+                  "groups": [
+                    {"name": "user-metadata", "displayHeader": "User metadata", "displayDescription": "Attributes, which refer to user metadata"}
+                  ]
+                }
+
+    roles:
+      client:
+        intranet:
+          - name: user
+            description: Access to the intranet application
+        echo-api:
+          - name: read
+            description: Read items
+          - name: write
+            description: Create items
+
+    # Members of "staff" get the intranet "user" role, contractors do not.
+    groups:
+      - name: staff
+        clientRoles:
+          intranet:
+            - user
+      - name: contractors
+
+    users:
+      - username: alice
+        enabled: true
+        email: alice@example.com
+        emailVerified: true
+        firstName: Alice
+        lastName: Martin
+        attributes:
+          employee_id:
+            - E-1001
+          department:
+            - Finance
+        credentials:
+          - type: password
+            value: "${ALICE_PASSWORD}"
+            temporary: false
+        groups:
+          - /staff
+      - username: bob
+        enabled: true
+        email: bob@example.com
+        emailVerified: true
+        firstName: Bob
+        lastName: Durand
+        attributes:
+          employee_id:
+            - C-2002
+          department:
+            - IT
+        credentials:
+          - type: password
+            value: "${BOB_PASSWORD}"
+            temporary: false
+        groups:
+          - /contractors
+      # Service accounts of the two machine clients, with their API roles.
+      - username: service-account-reporting-job
+        enabled: true
+        serviceAccountClientId: reporting-job
+        clientRoles:
+          echo-api:
+            - read
+      - username: service-account-inventory-sync
+        enabled: true
+        serviceAccountClientId: inventory-sync
+        clientRoles:
+          echo-api:
+            - read
+            - write
+
+    clients:
+      # Confidential client used by the OIDC filter of Envoy Gateway.
+      - clientId: intranet
+        name: Intranet (legacy application behind Envoy Gateway)
+        enabled: true
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: "${INTRANET_CLIENT_SECRET}"
+        standardFlowEnabled: true
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: false
+        redirectUris:
+          - https://intranet.kube.localhost/oauth2/callback
+        attributes:
+          post.logout.redirect.uris: https://intranet.kube.localhost/*
+          # The OIDC filter of Envoy sends a PKCE challenge: make it mandatory.
+          pkce.code.challenge.method: S256
+        protocolMappers:
+          # The access token is meant for the intranet: aud = intranet.
+          - name: audience-intranet
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+            config:
+              included.client.audience: intranet
+              access.token.claim: "true"
+              id.token.claim: "false"
+              introspection.token.claim: "true"
+          # Groups and HR attributes are only returned by the UserInfo endpoint:
+          # tokens stay small (Envoy stores them in cookies).
+          - name: groups-userinfo
+            protocol: openid-connect
+            protocolMapper: oidc-group-membership-mapper
+            config:
+              claim.name: groups
+              full.path: "false"
+              access.token.claim: "false"
+              id.token.claim: "false"
+              userinfo.token.claim: "true"
+              introspection.token.claim: "false"
+          - name: employee-id-userinfo
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-attribute-mapper
+            config:
+              user.attribute: employee_id
+              claim.name: employee_id
+              jsonType.label: String
+              access.token.claim: "false"
+              id.token.claim: "false"
+              userinfo.token.claim: "true"
+              introspection.token.claim: "false"
+          - name: department-userinfo
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-attribute-mapper
+            config:
+              user.attribute: department
+              claim.name: department
+              jsonType.label: String
+              access.token.claim: "false"
+              id.token.claim: "false"
+              userinfo.token.claim: "true"
+              introspection.token.claim: "false"
+
+      # Resource server: no login flow, it only defines the API roles.
+      # Tokens carrying one of its roles get aud = echo-api.
+      - clientId: echo-api
+        name: Echo API
+        enabled: true
+        publicClient: false
+        standardFlowEnabled: false
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: false
+
+      # Machine clients (client credentials grant).
+      - clientId: reporting-job
+        name: Reporting job (read only)
+        enabled: true
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: "${REPORTING_JOB_SECRET}"
+        standardFlowEnabled: false
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true
+      - clientId: inventory-sync
+        name: Inventory synchronization (read and write)
+        enabled: true
+        publicClient: false
+        clientAuthenticatorType: client-secret
+        secret: "${INVENTORY_SYNC_SECRET}"
+        standardFlowEnabled: false
+        implicitFlowEnabled: false
+        directAccessGrantsEnabled: false
+        serviceAccountsEnabled: true

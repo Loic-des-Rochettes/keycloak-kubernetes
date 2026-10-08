@@ -1,0 +1,169 @@
+# Legacy intranet application, protected by Envoy Gateway without any change:
+# OIDC login, token validation, role check and identity headers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intranet
+  labels:
+    app.kubernetes.io/name: intranet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intranet
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: intranet
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: python:3.14.8-alpine3.24
+          command: ["python", "-u", "/app/intranet.py"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: app
+          configMap:
+            name: demo-apps
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intranet
+spec:
+  selector:
+    app.kubernetes.io/name: intranet
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: intranet
+spec:
+  parentRefs:
+    - name: public
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - intranet.kube.localhost
+  rules:
+    - backendRefs:
+        - name: intranet
+          port: 8080
+      filters:
+        # The filters of the SecurityPolicy use the access token; the
+        # application does not need it, it never receives it.
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove:
+              - Authorization
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: intranet
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: intranet
+
+  # 1. Authentication: without a valid session, the browser is redirected to
+  # Keycloak (authorization code flow). Envoy keeps the tokens in encrypted
+  # cookies and refreshes them.
+  oidc:
+    provider:
+      issuer: https://keycloak.kube.localhost/realms/demo
+      # Called by the browser: public URL.
+      authorizationEndpoint: https://keycloak.kube.localhost/realms/demo/protocol/openid-connect/auth
+      endSessionEndpoint: https://keycloak.kube.localhost/realms/demo/protocol/openid-connect/logout
+      # Called by Envoy: internal URL.
+      tokenEndpoint: http://keycloak-service.keycloak.svc.cluster.local:8080/realms/demo/protocol/openid-connect/token
+    clientID: intranet
+    clientSecret:
+      name: intranet-oidc-client
+    redirectURL: https://intranet.kube.localhost/oauth2/callback
+    logoutPath: /logout
+    scopes:
+      - profile
+      - email
+    # Passes the access token to the next filters in the Authorization header.
+    forwardAccessToken: true
+
+  # 2. Validation of the access token and claims -> headers.
+  jwt:
+    providers:
+      - name: keycloak
+        issuer: https://keycloak.kube.localhost/realms/demo
+        audiences:
+          - intranet
+        remoteJWKS:
+          uri: http://keycloak-service.keycloak.svc.cluster.local:8080/realms/demo/protocol/openid-connect/certs
+        claimToHeaders:
+          - header: X-Remote-User
+            claim: preferred_username
+          - header: X-Remote-Name
+            claim: name
+          - header: X-Remote-Email
+            claim: email
+
+  # 3. Attributes that are not in the token: UserInfo -> headers.
+  extAuth:
+    http:
+      backendRefs:
+        - name: userinfo-authz
+          port: 8080
+      path: /authz
+      headersToBackend:
+        - X-Remote-Groups
+        - X-Remote-Employee-Id
+        - X-Remote-Department
+
+  # 4. Authorization: the "user" role of the intranet client is required.
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: intranet-users
+        action: Allow
+        principal:
+          jwt:
+            provider: keycloak
+            claims:
+              - name: resource_access.intranet.roles
+                valueType: StringArray
+                values:
+                  - user

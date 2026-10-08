@@ -1,0 +1,13 @@
+# Voluntary disruptions (node drain, cluster upgrade) never stop both
+# Keycloak pods at the same time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: keycloak
+      app.kubernetes.io/instance: keycloak

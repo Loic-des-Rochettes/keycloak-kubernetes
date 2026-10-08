@@ -1,0 +1,92 @@
+# Public hostname: only the paths needed by applications and users.
+# /admin, /metrics, /health and the master realm are not reachable here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-public
+  namespace: keycloak
+spec:
+  parentRefs:
+    - name: public
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - keycloak.kube.localhost
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /realms/master
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: not-found
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /realms
+        - path:
+            type: PathPrefix
+            value: /resources
+        - path:
+            type: PathPrefix
+            value: /.well-known
+      backendRefs:
+        - name: keycloak-service
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: not-found
+  namespace: keycloak
+spec:
+  directResponse:
+    statusCode: 404
+    contentType: text/plain
+    body:
+      type: Inline
+      inline: "Not found\n"
+---
+# Administration hostname: every path, restricted to an address allowlist.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: keycloak-admin
+  namespace: keycloak
+spec:
+  parentRefs:
+    - name: public
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - keycloak-admin.kube.localhost
+  rules:
+    - backendRefs:
+        - name: keycloak-service
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: keycloak-admin-allowlist
+  namespace: keycloak
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: keycloak-admin
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: admin-networks
+        action: Allow
+        principal:
+          # Replace with the networks of your administrators (VPN, bastion...).
+          # Here: private ranges, the source address seen behind Docker Desktop.
+          clientCIDRs:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16

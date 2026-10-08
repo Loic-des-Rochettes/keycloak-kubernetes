@@ -1,0 +1,24 @@
+# Namespaces of the platform.
+#
+# The "gateway-access: public" label allows HTTPRoutes of the namespace to attach
+# to the HTTPS listener of the public Gateway (see 01-gateway/gateway.yaml).
+#
+# Pod Security Admission: "restricted" for the demo applications. The Keycloak
+# Operator Deployment does not set a securityContext, so the keycloak namespace
+# enforces "baseline" and only warns about "restricted".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  labels:
+    gateway-access: public
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    gateway-access: public
+    pod-security.kubernetes.io/enforce: restricted

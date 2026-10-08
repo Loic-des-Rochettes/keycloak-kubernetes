@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+
+# The three applications are Python scripts (standard library only) run by the
+# official Python image: no image to build, no registry needed.
+configMapGenerator:
+  - name: demo-apps
+    files:
+      - apps/intranet.py
+      - apps/echo_api.py
+      - apps/userinfo_authz.py
+
+resources:
+  - network-policy.yaml
+  - userinfo-authz.yaml
+  - intranet.yaml
+  - echo-api.yaml
