@@ -62,9 +62,10 @@ It is the companion repository of the article
 ## Deploy, test, remove
 
 ```bash
-./deploy.sh          # about 10 minutes, first image pulls included
-./test.sh            # end-to-end checks
-./test-failover.sh   # PostgreSQL primary crash, Keycloak pods restart
+./deploy.sh              # 4 to 10 minutes, depending on image pulls
+./test.sh                # end-to-end checks
+./test-failover.sh       # PostgreSQL primary crash, Keycloak pods restart
+./test-key-rotation.sh   # signing key rotation seen by Envoy (about 6 minutes)
 ./teardown.sh
 ```
 
